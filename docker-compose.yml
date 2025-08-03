@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  zeek:
+    image: nborgers/zeek:latest
+    container_name: zeek-monitor
+    network_mode: host
+    volumes:
+      - ./logs:/opt/zeek/logs
+      - ./config:/opt/zeek/etc
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - ZEEK_LOG_DIR=/opt/zeek/logs
+      - ZEEK_CONFIG_FILE=/opt/zeek/etc/zeek-config.zeek
+    restart: unless-stopped
+    command: zeek -i eth0 -C /opt/zeek/etc/zeek-config.zeek
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    user: zeek
+    healthcheck:
+      test: ["CMD", "zeek", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Zeek Manager for cluster mode
+  zeek-manager:
+    image: nborgers/zeek:latest
+    container_name: zeek-manager
+    network_mode: host
+    volumes:
+      - ./logs:/opt/zeek/logs
+      - ./config:/opt/zeek/etc
+    environment:
+      - ZEEK_LOG_DIR=/opt/zeek/logs
+    restart: unless-stopped
+    command: zeek -C /opt/zeek/etc/zeek-config.zeek -B manager
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    user: zeek
+    profiles:
+      - cluster
+
+  # Optional: Zeek Worker for cluster mode
+  zeek-worker:
+    image: nborgers/zeek:latest
+    container_name: zeek-worker
+    network_mode: host
+    volumes:
+      - ./logs:/opt/zeek/logs
+      - ./config:/opt/zeek/etc
+    environment:
+      - ZEEK_LOG_DIR=/opt/zeek/logs
+    restart: unless-stopped
+    command: zeek -C /opt/zeek/etc/zeek-config.zeek -B worker -i eth0
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    security_opt:
+      - no-new-privileges:true
+    user: zeek
+    profiles:
+      - cluster
+
+volumes:
+  logs:
+    driver: local
+  config:
+    driver: local 
