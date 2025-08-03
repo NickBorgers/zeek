@@ -1,5 +1,5 @@
 # Multi-stage build for Zeek with comprehensive plugins
-FROM ubuntu:22.04 as builder
+FROM ubuntu:22.04 AS builder
 
 # Set environment variables
 ENV ZEEK_VERSION=6.0.0
@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     git \
+    wget \
+    curl \
     libpcap-dev \
     libssl-dev \
     python3 \
@@ -99,12 +101,7 @@ RUN git clone https://github.com/zeek/zeek-plugin-snmp.git \
     && /opt/zeek/bin/zeek -N zeek-plugin-snmp -b . \
     && cd ..
 
-# TFTP Plugin
-RUN git clone https://github.com/zeek/zeek-plugin-tftp.git \
-    && cd zeek-plugin-tftp \
-    && /opt/zeek/bin/zeek -N zeek-plugin-tftp \
-    && /opt/zeek/bin/zeek -N zeek-plugin-tftp -b . \
-    && cd ..
+
 
 # Syslog Plugin
 RUN git clone https://github.com/zeek/zeek-plugin-syslog.git \
