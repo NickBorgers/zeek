@@ -1,18 +1,26 @@
-# Optimized multi-stage build for Zeek with comprehensive plugins
+# Ultra-optimized multi-stage build for Zeek with comprehensive plugins
+# Use: docker build --build-arg BUILDKIT_INLINE_CACHE=1 -f Dockerfile.ultra-optimized .
+
+# syntax=docker/dockerfile:1.4
 FROM ubuntu:22.04 AS builder
 
 # Set environment variables for optimization
 ENV ZEEK_VERSION=6.0.0
 ENV DEBIAN_FRONTEND=noninteractive
 ENV MAKEFLAGS="-j$(nproc)"
+ENV CCACHE_DIR=/ccache
+ENV CCACHE_MAXSIZE=2G
 
-# Install build dependencies in a single layer
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install build dependencies with minimal packages
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
     wget \
     curl \
+    ccache \
     libpcap-dev \
     libssl-dev \
     python3 \
@@ -36,15 +44,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgoogle-perftools-dev \
     libgtest-dev \
     libbenchmark-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
 # Create zeek user
 RUN useradd -m -s /bin/bash zeek
 
+# Setup ccache for faster rebuilds
+RUN --mount=type=cache,target=/ccache \
+    mkdir -p /ccache && chown zeek:zeek /ccache
+
 # Download and build Zeek with caching
 WORKDIR /tmp
-RUN wget -q https://github.com/zeek/zeek/releases/download/v${ZEEK_VERSION}/zeek-${ZEEK_VERSION}.tar.gz \
+RUN --mount=type=cache,target=/ccache \
+    wget -q https://github.com/zeek/zeek/releases/download/v${ZEEK_VERSION}/zeek-${ZEEK_VERSION}.tar.gz \
     && tar -xzf zeek-${ZEEK_VERSION}.tar.gz \
     && cd zeek-${ZEEK_VERSION} \
     && ./configure --prefix=/opt/zeek \
@@ -56,34 +68,57 @@ RUN wget -q https://github.com/zeek/zeek/releases/download/v${ZEEK_VERSION}/zeek
 # Install Zeek plugins with optimized cloning and building
 WORKDIR /tmp/plugins
 
-# Clone all plugins first (better layer caching)
-RUN git clone --depth 1 https://github.com/zeek/zeek-plugin-arp.git \
-    && git clone --depth 1 https://github.com/zeek/zeek-plugin-dhcp.git \
-    && git clone --depth 1 https://github.com/zeek/zeek-plugin-mdns.git \
-    && git clone --depth 1 https://github.com/zeek/zeek-plugin-netbios.git \
-    && git clone --depth 1 https://github.com/zeek/zeek-plugin-llmnr.git \
-    && git clone --depth 1 https://github.com/zeek/zeek-plugin-ntp.git \
-    && git clone --depth 1 https://github.com/zeek/zeek-plugin-snmp.git
+# Clone all plugins in parallel with shallow clones
+RUN git clone --depth 1 --single-branch https://github.com/zeek/zeek-plugin-arp.git \
+    && git clone --depth 1 --single-branch https://github.com/zeek/zeek-plugin-dhcp.git \
+    && git clone --depth 1 --single-branch https://github.com/zeek/zeek-plugin-mdns.git \
+    && git clone --depth 1 --single-branch https://github.com/zeek/zeek-plugin-netbios.git \
+    && git clone --depth 1 --single-branch https://github.com/zeek/zeek-plugin-llmnr.git \
+    && git clone --depth 1 --single-branch https://github.com/zeek/zeek-plugin-ntp.git \
+    && git clone --depth 1 --single-branch https://github.com/zeek/zeek-plugin-snmp.git
 
-# Build all plugins in a single layer (better caching)
-RUN cd zeek-plugin-arp && /opt/zeek/bin/zeek -N zeek-plugin-arp && /opt/zeek/bin/zeek -N zeek-plugin-arp -b . && cd .. \
-    && cd zeek-plugin-dhcp && /opt/zeek/bin/zeek -N zeek-plugin-dhcp && /opt/zeek/bin/zeek -N zeek-plugin-dhcp -b . && cd .. \
-    && cd zeek-plugin-mdns && /opt/zeek/bin/zeek -N zeek-plugin-mdns && /opt/zeek/bin/zeek -N zeek-plugin-mdns -b . && cd .. \
-    && cd zeek-plugin-netbios && /opt/zeek/bin/zeek -N zeek-plugin-netbios && /opt/zeek/bin/zeek -N zeek-plugin-netbios -b . && cd .. \
-    && cd zeek-plugin-llmnr && /opt/zeek/bin/zeek -N zeek-plugin-llmnr && /opt/zeek/bin/zeek -N zeek-plugin-llmnr -b . && cd .. \
-    && cd zeek-plugin-ntp && /opt/zeek/bin/zeek -N zeek-plugin-ntp && /opt/zeek/bin/zeek -N zeek-plugin-ntp -b . && cd .. \
-    && cd zeek-plugin-snmp && /opt/zeek/bin/zeek -N zeek-plugin-snmp && /opt/zeek/bin/zeek -N zeek-plugin-snmp -b . && cd ..
+# Build all plugins in parallel using a script
+COPY <<EOF /tmp/build_plugins.sh
+#!/bin/bash
+set -e
 
-# Final stage
-FROM ubuntu:22.04
+build_plugin() {
+    local plugin=\$1
+    echo "Building \$plugin..."
+    cd /tmp/plugins/\$plugin
+    /opt/zeek/bin/zeek -N zeek-plugin-\$plugin
+    /opt/zeek/bin/zeek -N zeek-plugin-\$plugin -b .
+    echo "Built \$plugin"
+}
+
+# Build plugins in parallel
+build_plugin arp &
+build_plugin dhcp &
+build_plugin mdns &
+build_plugin netbios &
+build_plugin llmnr &
+build_plugin ntp &
+build_plugin snmp &
+
+# Wait for all builds to complete
+wait
+echo "All plugins built successfully"
+EOF
+
+RUN chmod +x /tmp/build_plugins.sh && /tmp/build_plugins.sh
+
+# Final stage - minimal runtime image
+FROM ubuntu:22.04 AS runtime
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/opt/zeek/bin:${PATH}"
 ENV ZEEKPATH="/opt/zeek/share/zeek:/opt/zeek/share/zeek/policy:/opt/zeek/share/zeek/site"
 
-# Install runtime dependencies in a single layer
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install only runtime dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     libpcap0.8 \
     libssl3 \
     python3 \
@@ -119,11 +154,9 @@ COPY --from=builder /tmp/plugins/*/build /opt/zeek/lib/zeek/plugins/
 # Set ownership
 RUN chown -R zeek:zeek /opt/zeek
 
-# Copy default configuration
+# Copy configuration files
 COPY zeek-config.zeek /opt/zeek/etc/zeek-config.zeek
 COPY local.zeek /opt/zeek/share/zeek/site/local.zeek
-
-# Set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

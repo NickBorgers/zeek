@@ -7,21 +7,39 @@
 help:
 	@echo "Zeek Docker Image - Available targets:"
 	@echo ""
-	@echo "  build        - Build the Docker image"
-	@echo "  test         - Run comprehensive tests (bash)"
-	@echo "  test-quick   - Run quick tests (bash)"
-	@echo "  test-python  - Run Python-based tests"
-	@echo "  clean        - Clean up test artifacts"
-	@echo "  run          - Run the container"
-	@echo "  logs         - Show container logs"
-	@echo "  stop         - Stop the container"
-	@echo "  shell        - Open shell in running container"
+	@echo "  build           - Build the Docker image"
+	@echo "  build-optimized - Build with optimizations"
+	@echo "  build-ultra     - Build with ultra optimizations"
+	@echo "  build-cached    - Build with BuildKit cache"
+	@echo "  test            - Run comprehensive tests (bash)"
+	@echo "  test-quick      - Run quick tests (bash)"
+	@echo "  test-python     - Run Python-based tests"
+	@echo "  clean           - Clean up test artifacts"
+	@echo "  run             - Run the container"
+	@echo "  logs            - Show container logs"
+	@echo "  stop            - Stop the container"
+	@echo "  shell           - Open shell in running container"
 	@echo ""
 
 # Build the Docker image
 build:
 	@echo "Building Zeek Docker image..."
 	docker build -t nborgers/zeek:latest .
+
+# Build with optimizations
+build-optimized:
+	@echo "Building Zeek Docker image with optimizations..."
+	@./build-optimized.sh
+
+# Build with ultra optimizations
+build-ultra:
+	@echo "Building Zeek Docker image with ultra optimizations..."
+	@./build-optimized.sh -u -c
+
+# Build with BuildKit cache
+build-cached:
+	@echo "Building Zeek Docker image with BuildKit cache..."
+	@./build-optimized.sh -c
 
 # Run comprehensive tests
 test:

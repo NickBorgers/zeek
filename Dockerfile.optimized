@@ -1,7 +1,7 @@
 # Optimized multi-stage build for Zeek with comprehensive plugins
 FROM ubuntu:22.04 AS builder
 
-# Set environment variables for optimization
+# Set environment variables
 ENV ZEEK_VERSION=6.0.0
 ENV DEBIAN_FRONTEND=noninteractive
 ENV MAKEFLAGS="-j$(nproc)"
@@ -53,7 +53,7 @@ RUN wget -q https://github.com/zeek/zeek/releases/download/v${ZEEK_VERSION}/zeek
     && cd .. \
     && rm -rf zeek-${ZEEK_VERSION} zeek-${ZEEK_VERSION}.tar.gz
 
-# Install Zeek plugins with optimized cloning and building
+# Install Zeek plugins in parallel with better caching
 WORKDIR /tmp/plugins
 
 # Clone all plugins first (better layer caching)
@@ -119,11 +119,9 @@ COPY --from=builder /tmp/plugins/*/build /opt/zeek/lib/zeek/plugins/
 # Set ownership
 RUN chown -R zeek:zeek /opt/zeek
 
-# Copy default configuration
+# Copy configuration files
 COPY zeek-config.zeek /opt/zeek/etc/zeek-config.zeek
 COPY local.zeek /opt/zeek/share/zeek/site/local.zeek
-
-# Set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
